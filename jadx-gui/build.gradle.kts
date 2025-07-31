@@ -5,6 +5,7 @@ plugins {
 	id("edu.sc.seis.launch4j") version "3.0.6"
 	id("com.gradleup.shadow") version "8.3.8"
 	id("org.beryx.runtime") version "1.13.1"
+	id("org.graalvm.buildtools.native") version "0.10.6"
 }
 
 dependencies {
@@ -80,6 +81,7 @@ application {
 			"-Djdk.util.zip.disableZip64ExtraFieldValidation=true",
 			// needed for ktlint formatter
 			"-XX:+IgnoreUnrecognizedVMOptions",
+			"-XX:+UnlockExperimentalVMOptions",
 			"--add-opens=java.base/java.lang=ALL-UNNAMED",
 			// Foreign API access for 'directories' library (Windows only)
 			"--enable-native-access=ALL-UNNAMED",
@@ -234,4 +236,99 @@ val syncNLSLines by tasks.registering(JavaExec::class) {
 
 	classpath = sourceSets.main.get().runtimeClasspath
 	mainClass.set("jadx.gui.utils.tools.SyncNLSLines")
+}
+
+graalvmNative {
+
+	metadataRepository {
+		enabled.set(true)
+	}
+
+	binaries {
+		named("main") {
+			buildArgs.add("-H:+UnlockExperimentalVMOptions")
+//			buildArgs.add("-H:PrintFlags=Debug")
+		}
+	}
+
+	agent {
+		defaultMode.set("standard")
+		enabled.set(true)
+		metadataCopy {
+			inputTaskNames.add("test")
+			outputDirectories.add("/META-INF/native-image/<groupId>/<artifactId>/")
+			mergeWithExisting.set(true)
+		}
+	}
+}
+
+tasks.register<Exec>("jpackageApp") {
+	group = "distribution"
+
+	val libTask = tasks.getByName("shadowJar")
+	dependsOn(libTask)
+
+	val outputDir = "${buildDir}/build"
+	val appName = "Jadx"
+	val mainJar = "jadx-gui-dev-all.jar"
+	val iconPath = "${layout.projectDirectory}/src/main/resources/logos/jadx-logo.icns"
+	val jvmOptions = listOf(
+		"-XX:+IgnoreUnrecognizedVMOptions",
+		"-Xms256M",
+		"-XX:MaxRAMPercentage=70.0",
+		"-Dawt.useSystemAAFontSettings=lcd",
+		"-Dswing.aatext=true",
+		"-Djava.util.Arrays.useLegacyMergeSort=true",
+		// disable zip checks (#1962)
+		"-Djdk.util.zip.disableZip64ExtraFieldValidation=true",
+		// needed for ktlint formatter
+		"-XX:+IgnoreUnrecognizedVMOptions",
+		"--add-opens=java.base/java.lang=ALL-UNNAMED",
+		// Foreign API access for 'directories' library (Windows only)
+		"--enable-native-access=ALL-UNNAMED",
+		// flags to fix UI ghosting (#2225)
+		"-Dsun.java2d.noddraw=true",
+		"-Dsun.java2d.d3d=false",
+		"-Dsun.java2d.ddforcevram=true",
+		"-Dsun.java2d.ddblit=false",
+		"-Dswing.useflipBufferStrategy=true",
+	).joinToString(" ")
+
+	val jlinkOptions = listOf(
+		"--strip-native-commands",
+		"--strip-debug",
+		"--compress", "zip-9",
+		"--no-man-pages",
+		"--no-header-files",
+	).joinToString(" ")
+
+	val addModules = listOf(
+		"java.desktop",
+		"java.naming",
+		"java.xml",
+		"jdk.crypto.cryptoki",
+		"jdk.accessibility",
+	).joinToString(",")
+
+	print("Jvm options : ${jvmOptions}")
+
+	doFirst {
+		mkdir(outputDir)
+	}
+
+	commandLine = listOf(
+		"jpackage",
+		"--type", "dmg",
+		"--input", "${layout.projectDirectory}/build/libs",
+		"--dest", outputDir,
+		"--name", appName,
+		"--main-jar", mainJar,
+		"--main-class", "jadx.gui.JadxGUI",
+		"--icon", iconPath,
+		"--java-options", jvmOptions,
+		"--jlink-options", jlinkOptions,
+		"--add-modules", addModules,
+		"--resource-dir", "${layout.projectDirectory}/config/plist",
+		"--verbose"
+	)
 }
