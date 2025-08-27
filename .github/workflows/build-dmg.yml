@@ -1,0 +1,32 @@
+name: Build Jadx
+run-name: ${{ github.actor }} Build Jadx
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        architecture: [ 'aarch64', 'x64' ]
+    name: Jadx ${{ matrix.architecture }} dmg
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: oracle
+          architecture: ${{ matrix.architecture }}
+      - name: Build with Gradle
+        run: ./gradlew :jadx-gui:jpackageApp
+      - name: Rename Package
+        run: mv jadx-gui/build/build/Jadx-1.0.dmg Jadx-${{ github.ref_name }}-${{ matrix.architecture }}.dmg
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: "jadx-gui/build/build/Jadx-${{ github.ref_name }}-${{ matrix.architecture }}.dmg"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
